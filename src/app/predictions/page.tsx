@@ -8,9 +8,14 @@ import Swal from 'sweetalert2';
 export default function PredictionsPage() {
   const [targetAttendance, setTargetAttendance] = useState(88);
   const [targetAssignment, setTargetAssignment] = useState(85);
-  const [discussionHours, setDiscussionHours] = useState(12);
+  // 1. UBAH STATE MENJADI SCORE (Skala 0-100)
+  const [discussionScore, setDiscussionScore] = useState(75);
+  
   const [predictedScore, setPredictedScore] = useState(92);
-  const [userName, setUserName] = useState('Dr. Jane Smith');
+  const [riskStatus, setRiskStatus] = useState('SAFE');
+  const [recommendation, setRecommendation] = useState('Menghubungkan ke AI...');
+  
+  const [userName, setUserName] = useState('');
   const router = useRouter();
 
   useEffect(() => {
@@ -21,18 +26,57 @@ export default function PredictionsPage() {
     }
     const savedName = localStorage.getItem('userName');
     if (savedName) setUserName(savedName);
+    
+    // Panggil AI pertama kali saat halaman dimuat
+    fetchPredictionFromAI(targetAttendance, targetAssignment, discussionScore);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [router]);
 
+  const fetchPredictionFromAI = async (attendance: number, assignment: number, discussion: number) => {
+    try {
+      const response = await fetch('http://localhost:8001/predict', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          attendanceRate: attendance,
+          assignmentScore: assignment,
+          // 2. SESUAIKAN KEY PAYLOAD (Pastikan schema Pydantic di FastAPI lu juga pakai nama ini atau sesuaikan)
+          discussionScore: discussion 
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPredictedScore(data.predictedScore);
+        setRiskStatus(data.riskStatus);
+        setRecommendation(data.recommendation);
+      }
+    } catch (error) {
+      console.error("FastAPI tidak merespons. Pastikan server berjalan di port 8001.", error);
+      setRecommendation("Gagal terhubung ke AI Engine (FastAPI).");
+    }
+  };
+
   const handleSliderChange = (type: string, val: number) => {
+    let newAttendance = targetAttendance;
+    let newAssignment = targetAssignment;
+    let newDiscussion = discussionScore;
+
     if (type === 'attendance') {
       setTargetAttendance(val);
-      setPredictedScore(Math.min(100, Math.round(val * 0.6 + targetAssignment * 0.4)));
+      newAttendance = val;
     } else if (type === 'assignment') {
       setTargetAssignment(val);
-      setPredictedScore(Math.min(100, Math.round(targetAttendance * 0.6 + val * 0.4)));
+      newAssignment = val;
     } else if (type === 'discussion') {
-      setDiscussionHours(val);
+      setDiscussionScore(val);
+      newDiscussion = val;
     }
+
+    // Panggil AI setiap kali slider digeser
+    fetchPredictionFromAI(newAttendance, newAssignment, newDiscussion);
   };
 
   const handleLogout = () => {
@@ -66,8 +110,20 @@ export default function PredictionsPage() {
   };
 
   const getInitials = (str: string) => {
+    if (!str) return '...';
     return str.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
+
+  let circleColor = 'border-emerald-500';
+  let statusTextColor = 'text-emerald-600';
+  
+  if (riskStatus === 'MEDIUM RISK') {
+    circleColor = 'border-amber-400';
+    statusTextColor = 'text-amber-500';
+  } else if (riskStatus === 'HIGH RISK') {
+    circleColor = 'border-rose-600';
+    statusTextColor = 'text-rose-600';
+  }
 
   return (
     <div className="min-h-screen bg-[#f8f9ff] text-[#0b1c30] flex font-sans">
@@ -107,7 +163,7 @@ export default function PredictionsPage() {
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-red-50 border border-red-200 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-100 transition shadow-sm"
           >
-            <span>🚪</span> Keluar (Logout)
+            <span>🚪</span> Keluar 
           </button>
         </div>
       </aside>
@@ -130,7 +186,7 @@ export default function PredictionsPage() {
         <div className="p-8 space-y-8">
           <div>
             <h3 className="text-2xl font-extrabold text-[#0b1c30]">Simulasi & Model Early Warning</h3>
-            <p className="text-sm text-[#434655]">Gunakan simulator berbasis Random Forest untuk memproyeksikan tingkat keberhasilan studi mahasiswa.</p>
+            <p className="text-sm text-[#434655]">Gunakan simulator ini untuk memproyeksikan tingkat keberhasilan studi mahasiswa secara real-time via FastAPI.</p>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -138,10 +194,10 @@ export default function PredictionsPage() {
               <div className="flex items-center justify-between border-b border-[#c3c6d7]/30 pb-4">
                 <div>
                   <h4 className="font-bold text-lg text-[#0b1c30]">🎯 'What If' Behavior Simulator</h4>
-                  <p className="text-xs text-[#434655]">Proyeksikan dampak perubahan perilaku akademik terhadap skor prediksi.</p>
+                  <p className="text-xs text-[#434655]">Geser slider di bawah untuk melihat kalkulasi AI.</p>
                 </div>
                 <span className="px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold border border-emerald-200">
-                  FastAPI Port 8001 Ready
+                  ⚡ API Connected
                 </span>
               </div>
 
@@ -175,25 +231,28 @@ export default function PredictionsPage() {
                 />
               </div>
 
+              {/* 3. UBAH UI SLIDER KETIGA BIAR SINKRON DENGAN FORM */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm font-semibold">
-                  <span className="text-[#0b1c30]">E-Learning / Discussion Hours / Week</span>
-                  <span className="text-[#004ac6]">{discussionHours} Hours</span>
+                  <span className="text-[#0b1c30]">Avg. Discussion Score</span>
+                  <span className="text-[#004ac6]">{discussionScore} / 100</span>
                 </div>
                 <input 
                   type="range" 
-                  min="2" 
-                  max="30" 
-                  value={discussionHours} 
+                  min="0" 
+                  max="100" 
+                  value={discussionScore} 
                   onChange={(e) => handleSliderChange('discussion', Number(e.target.value))}
                   className="w-full accent-[#004ac6] cursor-pointer"
                 />
               </div>
 
-              <div className="p-4 bg-[#eff4ff] rounded-xl border border-[#c3c6d7]/30 space-y-2">
-                <p className="text-xs font-bold text-[#004ac6] uppercase tracking-wider">💡 Personalized AI Recommendations</p>
-                <p className="text-xs text-[#434655] leading-relaxed">
-                  Meningkatkan aktivitas diskusi e-learning minimal <strong>3 jam/minggu</strong> terbukti menaikkan akurasi kelulusan tepat waktu sebesar <strong>4.2%</strong>.
+              <div className={`p-4 rounded-xl border ${riskStatus === 'HIGH RISK' ? 'bg-rose-50 border-rose-200' : 'bg-[#eff4ff] border-[#c3c6d7]/30'} space-y-2 transition-colors duration-300`}>
+                <p className={`text-xs font-bold uppercase tracking-wider ${riskStatus === 'HIGH RISK' ? 'text-rose-600' : 'text-[#004ac6]'}`}>
+                  💡 AI Recommendation
+                </p>
+                <p className="text-sm text-[#0b1c30] font-medium leading-relaxed">
+                  {recommendation}
                 </p>
               </div>
             </div>
@@ -201,12 +260,14 @@ export default function PredictionsPage() {
             <div className="bg-white border border-[#c3c6d7]/40 rounded-2xl p-8 shadow-xs lg:col-span-1 flex flex-col justify-between">
               <div>
                 <h4 className="font-bold text-lg text-[#0b1c30] mb-2">Predicted Outcome</h4>
-                <p className="text-xs text-[#434655] mb-6">Skor kalkulasi akhir berdasarkan parameter simulasi.</p>
+                <p className="text-xs text-[#434655] mb-6">Skor kalkulasi ditenagai oleh FastAPI Machine Learning Engine.</p>
 
                 <div className="flex flex-col items-center justify-center my-6">
-                  <div className="w-40 h-40 rounded-full border-8 border-[#004ac6] bg-[#f8f9ff] flex flex-col items-center justify-center shadow-inner">
+                  <div className={`w-40 h-40 rounded-full border-8 ${circleColor} bg-[#f8f9ff] flex flex-col items-center justify-center shadow-inner transition-colors duration-500`}>
                     <span className="text-4xl font-extrabold text-[#0b1c30]">{predictedScore}%</span>
-                    <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider mt-1">Safe Zone</span>
+                    <span className={`text-[10px] ${statusTextColor} font-bold uppercase tracking-wider mt-1 transition-colors duration-500`}>
+                      {riskStatus}
+                    </span>
                   </div>
                 </div>
               </div>
