@@ -49,6 +49,10 @@ export default function SettingsPage() {
       if (result.isConfirmed) {
         localStorage.removeItem('token');
         localStorage.removeItem('userName');
+        localStorage.removeItem('userRole');
+        // Hapus cookie agar middleware ikut menganggap user sudah logout
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        document.cookie = 'userRole=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
         router.push('/login');
       }
     });

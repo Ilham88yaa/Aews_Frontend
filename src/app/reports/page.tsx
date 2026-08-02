@@ -12,9 +12,11 @@ interface Student {
   id: string;
   nim: string;
   name: string;
+  gpa?: number;
   attendanceRate: number;
   assignmentScore: number;
-  discussionPart: number;
+  quizScore?: number;
+  atsScore?: number;
   predictedScore: number;
   riskStatus: string;
 }
@@ -73,6 +75,10 @@ export default function ReportsPage() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('userName');
+    localStorage.removeItem('userRole');
+    // Hapus cookie agar middleware ikut menganggap user sudah logout
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'userRole=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     router.push('/login');
   };
 
@@ -250,27 +256,31 @@ export default function ReportsPage() {
                         <th className="p-3 border-r border-gray-300 w-10 text-center">No</th>
                         <th className="p-3 border-r border-gray-300">NIM</th>
                         <th className="p-3 border-r border-gray-300">Nama Lengkap</th>
+                        <th className="p-3 border-r border-gray-300 text-center">IPK</th>
                         <th className="p-3 border-r border-gray-300 text-center">Absen</th>
                         <th className="p-3 border-r border-gray-300 text-center">Tugas</th>
-                        <th className="p-3 border-r border-gray-300 text-center">Diskusi</th>
+                        <th className="p-3 border-r border-gray-300 text-center">Kuis</th>
+                        <th className="p-3 border-r border-gray-300 text-center">ATS</th>
                         <th className="p-3 border-r border-gray-300 text-center">Skor AI</th>
                         <th className="p-3 text-center">Status Prediksi</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm divide-y divide-gray-200">
                       {loading ? (
-                        <tr><td colSpan={8} className="p-4 text-center text-gray-500">Memuat data...</td></tr>
+                        <tr><td colSpan={10} className="p-4 text-center text-gray-500">Memuat data...</td></tr>
                       ) : students.length === 0 ? (
-                        <tr><td colSpan={8} className="p-4 text-center text-gray-500">Tidak ada data mahasiswa.</td></tr>
+                        <tr><td colSpan={10} className="p-4 text-center text-gray-500">Tidak ada data mahasiswa.</td></tr>
                       ) : (
                         students.map((student, index) => (
                           <tr key={student.id} className="hover:bg-gray-50">
                             <td className="p-3 border-r border-gray-200 text-center text-gray-500">{index + 1}</td>
                             <td className="p-3 border-r border-gray-200 font-semibold text-gray-700">{student.nim}</td>
                             <td className="p-3 border-r border-gray-200 text-gray-900">{student.name}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.gpa?.toFixed(2) || '-'}</td>
                             <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.attendanceRate}%</td>
                             <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.assignmentScore}</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.discussionPart}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.quizScore ?? '-'}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.atsScore ?? '-'}</td>
                             <td className="p-3 border-r border-gray-200 text-center font-bold text-gray-900">{student.predictedScore}%</td>
                             <td className="p-3 text-center font-bold text-[11px]">
                               {student.riskStatus === 'HIGH RISK' ? (
