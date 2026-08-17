@@ -8,6 +8,15 @@ import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf'; 
 import { toPng } from 'html-to-image'; 
 
+interface RiskHistory {
+  id: string;
+  weekNumber: number;
+  predictedScore: number;
+  riskStatus: string;
+  courseName: string;
+  recordedAt: string;
+}
+
 interface Student {
   id: string;
   nim: string;
@@ -19,12 +28,30 @@ interface Student {
   atsScore?: number;
   predictedScore: number;
   riskStatus: string;
+  riskHistories?: RiskHistory[];
+}
+
+interface ReportRow {
+  id: string;
+  nim: string;
+  name: string;
+  gpa?: number;
+  attendanceRate: number;
+  assignmentScore: number;
+  quizScore?: number;
+  atsScore?: number;
+  predictedScore: number;
+  riskStatus: string;
+  courseName: string;
+  weekNumber: number;
 }
 
 export default function ReportsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState('');
+  const [selectedCourse, setSelectedCourse] = useState<string>('Semua Matkul');
+  const [selectedWeek, setSelectedWeek] = useState<string>('Semua Minggu');
   
   // State Mobile Menu
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -87,8 +114,98 @@ export default function ReportsPage() {
     return str.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
   };
 
-  const totalStudents = students.length;
-  const highRiskCount = students.filter(s => s.riskStatus === 'HIGH RISK').length;
+  const uniqueCourses = React.useMemo(() => {
+    return Array.from(
+      new Set(
+        students.flatMap((s) => s.riskHistories?.map((h) => h.courseName) || [])
+      )
+    ).filter(Boolean);
+  }, [students]);
+
+  const uniqueWeeks = React.useMemo(() => {
+    return Array.from(
+      new Set(
+        students.flatMap((s) => s.riskHistories?.map((h) => h.weekNumber) || [])
+      )
+    ).sort((a, b) => a - b);
+  }, [students]);
+
+  const filteredRows = React.useMemo(() => {
+    let rows: ReportRow[] = [];
+
+    students.forEach((student) => {
+      if (!student.riskHistories || student.riskHistories.length === 0) {
+        rows.push({
+          id: `${student.id}-current`,
+          nim: student.nim,
+          name: student.name,
+          gpa: student.gpa,
+          attendanceRate: student.attendanceRate,
+          assignmentScore: student.assignmentScore,
+          quizScore: student.quizScore,
+          atsScore: student.atsScore,
+          predictedScore: student.predictedScore,
+          riskStatus: student.riskStatus,
+          courseName: 'Umum',
+          weekNumber: 4,
+        });
+        return;
+      }
+
+      const matchCourse = selectedCourse !== 'Semua Matkul';
+      const matchWeek = selectedWeek !== 'Semua Minggu';
+
+      if (!matchCourse && !matchWeek) {
+        const sortedHistories = [...student.riskHistories].sort(
+          (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+        );
+        const latest = sortedHistories[0];
+        rows.push({
+          id: `${student.id}-${latest.id}`,
+          nim: student.nim,
+          name: student.name,
+          gpa: student.gpa,
+          attendanceRate: student.attendanceRate,
+          assignmentScore: student.assignmentScore,
+          quizScore: student.quizScore,
+          atsScore: student.atsScore,
+          predictedScore: latest.predictedScore,
+          riskStatus: latest.riskStatus,
+          courseName: latest.courseName,
+          weekNumber: latest.weekNumber,
+        });
+      } else {
+        const matched = student.riskHistories.filter((h) => {
+          const coursePass = !matchCourse || h.courseName === selectedCourse;
+          const weekPass = !matchWeek || h.weekNumber === Number(selectedWeek);
+          return coursePass && weekPass;
+        });
+
+        matched.forEach((h) => {
+          rows.push({
+            id: `${student.id}-${h.id}`,
+            nim: student.nim,
+            name: student.name,
+            gpa: student.gpa,
+            attendanceRate: student.attendanceRate,
+            assignmentScore: student.assignmentScore,
+            quizScore: student.quizScore,
+            atsScore: student.atsScore,
+            predictedScore: h.predictedScore,
+            riskStatus: h.riskStatus,
+            courseName: h.courseName,
+            weekNumber: h.weekNumber,
+          });
+        });
+      }
+    });
+
+    // Hanya tampilkan mahasiswa dengan resiko kritis (HIGH RISK) dan peringatan (bukan SAFE)
+    // Serta urutkan berdasarkan resiko tertinggi (predictedScore desc)
+    return rows
+      .filter((row) => row.riskStatus !== 'SAFE')
+      .sort((a, b) => b.predictedScore - a.predictedScore);
+  }, [students, selectedCourse, selectedWeek]);
 
   const currentDate = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
@@ -223,9 +340,47 @@ export default function ReportsPage() {
             </button>
           </div>
 
+          {/* Filter Dropdowns Card */}
+          <div className="bg-white p-5 md:p-6 rounded-2xl border border-[#c3c6d7]/40 shadow-sm space-y-4">
+            <div>
+              <h4 className="text-sm font-bold text-[#0b1c30] uppercase tracking-wider">Penyaringan Laporan</h4>
+              <p className="text-xs text-[#516070] mt-0.5">Saring data tabel di bawah berdasarkan kriteria sebelum diekspor ke PDF.</p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-[#516070] uppercase mb-2">Filter Mata Kuliah</label>
+                <select
+                  value={selectedCourse}
+                  onChange={(e) => setSelectedCourse(e.target.value)}
+                  className="w-full bg-[#f8f9ff] border border-[#c3c6d7]/60 rounded-xl px-4 py-2.5 text-sm font-semibold focus:outline-none focus:border-[#004ac6] text-gray-800 transition"
+                >
+                  <option value="Semua Matkul">Semua Matkul</option>
+                  {uniqueCourses.map((course) => (
+                    <option key={course} value={course}>{course}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-[#516070] uppercase mb-2">Filter Minggu Checkpoint</label>
+                <select
+                  value={selectedWeek}
+                  onChange={(e) => setSelectedWeek(e.target.value)}
+                  className="w-full bg-[#f8f9ff] border border-[#c3c6d7]/60 rounded-xl px-4 py-2.5 text-sm font-semibold focus:outline-none focus:border-[#004ac6] text-gray-800 transition"
+                >
+                  <option value="Semua Minggu">Semua Minggu</option>
+                  {uniqueWeeks.map((week) => (
+                    <option key={week} value={String(week)}>
+                      Minggu ke-{week} {Number(week) >= 8 ? '(Post-UTS)' : '(Pre-UTS)'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-white border border-[#c3c6d7]/40 shadow-sm rounded-2xl overflow-x-auto p-4 md:p-6">
             {/* Wrapper with fixed minimum width for the PDF layout to prevent text squashing on mobile */}
-            <div className="min-w-[800px]">
+            <div className="min-w-[850px]">
               <div ref={reportRef} className="bg-white p-8 md:p-12 text-[#0b1c30]" style={{ width: '100%', minHeight: '800px' }}>
                 
                 <div className="border-b-4 border-double border-gray-800 pb-6 mb-8 text-center flex flex-col items-center">
@@ -236,15 +391,18 @@ export default function ReportsPage() {
 
                 <div className="flex justify-between items-end mb-8 text-sm">
                   <div>
-                    <p className="mb-1"><span className="font-bold w-32 inline-block">Tanggal Cetak</span>: {currentDate}</p>
-                    <p className="mb-1"><span className="font-bold w-32 inline-block">Dosen Wali</span>: {userName}</p>
-                    <p><span className="font-bold w-32 inline-block">Semester/TA</span>: Ganjil / 2025-2026</p>
+                    <p className="mb-1"><span className="font-bold w-40 inline-block">Tanggal Cetak</span>: {currentDate}</p>
+                    <p className="mb-1"><span className="font-bold w-40 inline-block">Dosen Wali</span>: {userName}</p>
+                    <p className="mb-1"><span className="font-bold w-40 inline-block">Mata Kuliah</span>: {selectedCourse}</p>
+                    <p className="mb-1"><span className="font-bold w-40 inline-block">Minggu Checkpoint</span>: {selectedWeek !== 'Semua Minggu' ? `Minggu ke-${selectedWeek} (${Number(selectedWeek) >= 8 ? 'Post-UTS' : 'Pre-UTS'})` : 'Semua Minggu'}</p>
+                    <p><span className="font-bold w-40 inline-block">Semester/TA</span>: Ganjil / 2025-2026</p>
                   </div>
                   <div className="text-right bg-gray-50 p-3 rounded-lg border border-gray-200">
-                    <p className="text-xs font-bold text-gray-500 uppercase">Ringkasan Sistem</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase">Ringkasan Laporan</p>
                     <div className="flex gap-4 mt-2 font-bold text-sm">
-                      <span className="text-blue-700">Total: {totalStudents}</span>
-                      <span className="text-rose-600">Kritis: {highRiskCount}</span>
+                      <span className="text-blue-700">Total: {filteredRows.length}</span>
+                      <span className="text-rose-600">Kritis: {filteredRows.filter(r => r.riskStatus === 'HIGH RISK').length}</span>
+                      <span className="text-amber-600">Peringatan: {filteredRows.filter(r => r.riskStatus !== 'HIGH RISK').length}</span>
                     </div>
                   </div>
                 </div>
@@ -256,6 +414,7 @@ export default function ReportsPage() {
                         <th className="p-3 border-r border-gray-300 w-10 text-center">No</th>
                         <th className="p-3 border-r border-gray-300">NIM</th>
                         <th className="p-3 border-r border-gray-300">Nama Lengkap</th>
+                        <th className="p-3 border-r border-gray-300 text-center">Mata Kuliah</th>
                         <th className="p-3 border-r border-gray-300 text-center">IPK</th>
                         <th className="p-3 border-r border-gray-300 text-center">Absen</th>
                         <th className="p-3 border-r border-gray-300 text-center">Tugas</th>
@@ -267,25 +426,26 @@ export default function ReportsPage() {
                     </thead>
                     <tbody className="text-sm divide-y divide-gray-200">
                       {loading ? (
-                        <tr><td colSpan={10} className="p-4 text-center text-gray-500">Memuat data...</td></tr>
-                      ) : students.length === 0 ? (
-                        <tr><td colSpan={10} className="p-4 text-center text-gray-500">Tidak ada data mahasiswa.</td></tr>
+                        <tr><td colSpan={11} className="p-4 text-center text-gray-500">Memuat data...</td></tr>
+                      ) : filteredRows.length === 0 ? (
+                        <tr><td colSpan={11} className="p-4 text-center text-gray-500">Tidak ada data mahasiswa berisiko yang sesuai dengan kriteria filter.</td></tr>
                       ) : (
-                        students.map((student, index) => (
-                          <tr key={student.id} className="hover:bg-gray-50">
+                        filteredRows.map((row, index) => (
+                          <tr key={row.id} className="hover:bg-gray-50">
                             <td className="p-3 border-r border-gray-200 text-center text-gray-500">{index + 1}</td>
-                            <td className="p-3 border-r border-gray-200 font-semibold text-gray-700">{student.nim}</td>
-                            <td className="p-3 border-r border-gray-200 text-gray-900">{student.name}</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.gpa?.toFixed(2) || '-'}</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.attendanceRate}%</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.assignmentScore}</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.quizScore ?? '-'}</td>
-                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{student.atsScore ?? '-'}</td>
-                            <td className="p-3 border-r border-gray-200 text-center font-bold text-gray-900">{student.predictedScore}%</td>
+                            <td className="p-3 border-r border-gray-200 font-semibold text-gray-700">{row.nim}</td>
+                            <td className="p-3 border-r border-gray-200 text-gray-900">{row.name}</td>
+                            <td className="p-3 border-r border-gray-200 text-gray-700 font-medium text-center text-xs">{row.courseName}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{row.gpa?.toFixed(2) || '-'}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{row.attendanceRate}%</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{row.assignmentScore}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{row.quizScore ?? '-'}</td>
+                            <td className="p-3 border-r border-gray-200 text-center text-gray-600">{row.atsScore ?? '-'}</td>
+                            <td className="p-3 border-r border-gray-200 text-center font-bold text-rose-600">{row.predictedScore}%</td>
                             <td className="p-3 text-center font-bold text-[11px]">
-                              {student.riskStatus === 'HIGH RISK' ? (
+                              {row.riskStatus === 'HIGH RISK' ? (
                                 <span className="text-rose-600">Kritis (Tindak Lanjut)</span>
-                              ) : student.riskStatus === 'SAFE' ? (
+                              ) : row.riskStatus === 'SAFE' ? (
                                 <span className="text-emerald-600">Aman</span>
                               ) : (
                                 <span className="text-amber-500">Peringatan</span>

@@ -60,12 +60,59 @@ export default function DosenDashboard() {
 
     fetchStudents(token, true);
 
-    // Polling setiap 5 menit (cukup untuk skenario update 4 minggu sekali)
+    // 1. BroadcastChannel & Storage Event untuk deteksi INSTAN (0 detik) saat admin tambah/ubah data
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('aews_events');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'NEW_NOTIFICATION' && event.data?.notif) {
+          const incomingNotif = event.data.notif;
+          setNotifications(prev => {
+            if (prev.some(n => n.id === incomingNotif.id)) return prev;
+            return [incomingNotif, ...prev.slice(0, 49)];
+          });
+          Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 4000,
+            timerProgressBar: true,
+          }).fire({
+            icon: incomingNotif.type === 'danger' ? 'warning' : incomingNotif.type === 'success' ? 'success' : 'info',
+            title: incomingNotif.title,
+            text: incomingNotif.message,
+          });
+          fetchStudents(token, false);
+        } else if (event.data?.type === 'DATA_UPDATED') {
+          fetchStudents(token, false);
+        }
+      };
+    } catch (e) {}
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'aews_data_updated_trigger' || e.key === 'aews_dosen_notifications') {
+        const saved = localStorage.getItem('aews_dosen_notifications');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) setNotifications(parsed);
+          } catch (err) {}
+        }
+        fetchStudents(token, false);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // 2. Polling interval 5 detik sebagai fallback otomatis
     const intervalId = setInterval(() => {
       fetchStudents(token, false);
-    }, 5 * 60 * 1000);
+    }, 5 * 1000);
 
-    return () => clearInterval(intervalId);
+    return () => {
+      channel?.close();
+      window.removeEventListener('storage', handleStorage);
+      clearInterval(intervalId);
+    };
   }, [router]);
 
   // Tutup panel notifikasi jika klik di luar
@@ -79,12 +126,45 @@ export default function DosenDashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const addNotif = useCallback((type: Notif['type'], title: string, message: string) => {
+  // Load saved notifications on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('aews_dosen_notifications');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setNotifications(parsed);
+          const maxId = parsed.reduce((max, n) => Math.max(max, n.id || 0), 0);
+          notifIdRef.current = maxId;
+        }
+      } catch (e) {}
+    }
+  }, []);
+
+  const addNotif = useCallback((type: Notif['type'], title: string, message: string, showToast = true) => {
     const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-    setNotifications(prev => [
-      { id: ++notifIdRef.current, type, title, message, time: now, read: false },
-      ...prev.slice(0, 19), // max 20 notif
-    ]);
+    setNotifications(prev => {
+      const updated = [
+        { id: ++notifIdRef.current, type, title, message, time: now, read: false },
+        ...prev.slice(0, 49), // simpan histori hingga 50 notifikasi
+      ];
+      localStorage.setItem('aews_dosen_notifications', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (showToast) {
+      Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 4000,
+        timerProgressBar: true,
+      }).fire({
+        icon: type === 'danger' ? 'warning' : type === 'success' ? 'success' : 'info',
+        title: title,
+        text: message,
+      });
+    }
   }, []);
 
   const fetchStudents = async (token: string, isInitial: boolean) => {
@@ -97,31 +177,40 @@ export default function DosenDashboard() {
         setStudents(data);
 
         const currentHighRisk = data.filter(s => s.riskStatus === 'HIGH RISK').length;
+        const savedNotifs = localStorage.getItem('aews_dosen_notifications');
+        const hasExistingNotifs = savedNotifs && JSON.parse(savedNotifs).length > 0;
 
-        // Ambil count terakhir dari localStorage (persisten antar sesi/tab)
-        const savedCount = localStorage.getItem('aews_dosen_hr_count');
-        const prevCount = savedCount !== null ? parseInt(savedCount, 10) : null;
-
-        if (prevCount !== null && currentHighRisk !== prevCount) {
-          if (currentHighRisk > prevCount) {
-            const diff = currentHighRisk - prevCount;
+        if (prevHighRiskCountRef.current === null) {
+          // Pertama kali dibuka: jika ada mahasiswa High Risk, pastikan ada notifikasi aktif
+          if (currentHighRisk > 0 && !hasExistingNotifs) {
             addNotif(
               'danger',
-              `🚨 HIGH RISK Bertambah +${diff}`,
-              `Admin menambahkan/memperbarui data. Kini ada ${currentHighRisk} mahasiswa berisiko tinggi yang membutuhkan intervensi segera.`
+              '🚨 Mahasiswa High Risk Terdeteksi',
+              `terdapat ${currentHighRisk} mahasiswa yang memiliki high risk, segera lakukan tindakan`,
+              false
+            );
+          }
+        } else if (currentHighRisk !== prevHighRiskCountRef.current) {
+          if (currentHighRisk > prevHighRiskCountRef.current) {
+            const diff = currentHighRisk - prevHighRiskCountRef.current;
+            addNotif(
+              'danger',
+              '🚨 Mahasiswa High Risk Terdeteksi',
+              `terdapat ${currentHighRisk} mahasiswa yang memiliki high risk, segera lakukan tindakan`,
+              true
             );
           } else {
-            const diff = prevCount - currentHighRisk;
+            const diff = prevHighRiskCountRef.current - currentHighRisk;
             addNotif(
               'success',
-              `✅ Intervensi Berhasil! -${diff} HIGH RISK`,
-              `Data diperbarui oleh admin. ${diff} mahasiswa berhasil turun status dari HIGH RISK. Jumlah kritis sekarang: ${currentHighRisk}.`
+              '✅ Intervensi Berhasil',
+              `intervensi kepada mahasiswa berhasil, ${diff} mahasiswa berhasil menurunkan resikonya, terimakasih`,
+              true
             );
           }
         }
 
-        // Simpan count terbaru ke localStorage
-        localStorage.setItem('aews_dosen_hr_count', String(currentHighRisk));
+        prevHighRiskCountRef.current = currentHighRisk;
       }
     } catch (error) {
       console.error('Gagal mengambil data mahasiswa:', error);
@@ -151,7 +240,7 @@ export default function DosenDashboard() {
     });
   };
 
-  const handleRecordIntervention = (studentName: string) => {
+  const handleRecordIntervention = (studentId: string, studentName: string) => {
     Swal.fire({
       title: 'Catat Intervensi Akademik',
       html: `
@@ -182,16 +271,39 @@ export default function DosenDashboard() {
         const type = (document.getElementById('intervention-type') as HTMLSelectElement).value;
         const note = (document.getElementById('intervention-note') as HTMLTextAreaElement).value;
         if (!note) { Swal.showValidationMessage('Catatan pembinaan tidak boleh kosong!'); return false; }
-        return { type, note };
+        return { actionType: type, notes: note };
       },
-    }).then((result) => {
-      if (result.isConfirmed) {
-        Swal.fire({
-          icon: 'success',
-          title: 'Tersimpan!',
-          text: `Laporan intervensi untuk ${studentName} berhasil dicatat di sistem.`,
-          confirmButtonColor: '#1d4ed8',
-        });
+    }).then(async (result) => {
+      if (result.isConfirmed && result.value) {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        try {
+          const response = await fetch(`${API_URL}/students/${studentId}/interventions`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(result.value),
+          });
+
+          if (response.ok) {
+            Swal.fire({
+              icon: 'success',
+              title: 'Tersimpan!',
+              text: `Laporan intervensi untuk ${studentName} berhasil dicatat di sistem.`,
+              confirmButtonColor: '#1d4ed8',
+            });
+            fetchStudents(token, false);
+          } else {
+            const errData = await response.json();
+            Swal.fire('Gagal', errData.message || 'Gagal menyimpan laporan intervensi.', 'error');
+          }
+        } catch (error) {
+          console.error('Error saving intervention:', error);
+          Swal.fire('Gagal', 'Terjadi kesalahan saat menyimpan laporan.', 'error');
+        }
       }
     });
   };
@@ -245,6 +357,9 @@ export default function DosenDashboard() {
             <a href="/dosen/dashboard" className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#1d4ed8] to-blue-500 text-white font-semibold text-sm shadow-md shadow-blue-200/50">
               <span>📊</span> Dashboard
             </a>
+            <a href="/dosen/interventions" className="flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-600 hover:bg-slate-50 font-semibold text-sm transition-all">
+              <span>📝</span> Histori Intervensi
+            </a>
           </nav>
         </div>
 
@@ -280,8 +395,11 @@ export default function DosenDashboard() {
               <button
                 onClick={() => {
                   setShowNotifPanel(p => !p);
-                  // Tandai semua sudah dibaca saat panel dibuka
-                  setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                  setNotifications(prev => {
+                    const updated = prev.map(n => ({ ...n, read: true }));
+                    localStorage.setItem('aews_dosen_notifications', JSON.stringify(updated));
+                    return updated;
+                  });
                 }}
                 className="w-9 h-9 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-blue-50 transition-all"
               >
@@ -301,7 +419,10 @@ export default function DosenDashboard() {
                     <h4 className="text-sm font-extrabold text-[#0b1c30]">Notifikasi</h4>
                     {notifications.length > 0 && (
                       <button
-                        onClick={() => setNotifications([])}
+                        onClick={() => {
+                          setNotifications([]);
+                          localStorage.removeItem('aews_dosen_notifications');
+                        }}
                         className="text-[10px] text-slate-400 hover:text-rose-500 font-semibold transition-colors"
                       >
                         Hapus Semua
@@ -337,7 +458,7 @@ export default function DosenDashboard() {
                     )}
                   </div>
                   <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50">
-                    <p className="text-[9px] text-slate-400 text-center">Update otomatis setiap 30 detik · AI: Random Forest</p>
+                    <p className="text-[9px] text-slate-400 text-center">⚡ Update Realtime Otomatis · AI: Random Forest</p>
                   </div>
                 </div>
               )}
@@ -511,7 +632,7 @@ export default function DosenDashboard() {
                         </td>
                         <td className="px-5 py-4 text-center">
                           <button
-                            onClick={() => handleRecordIntervention(student.name)}
+                            onClick={() => handleRecordIntervention(student.id, student.name)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 rounded-lg text-xs font-bold transition-all shadow-sm"
                           >
                             📝 Catat Intervensi

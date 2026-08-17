@@ -197,6 +197,44 @@ export default function StudentsPage() {
     }
   };
 
+  const pushSystemNotification = (type: 'danger' | 'success' | 'info', title: string, message: string) => {
+    const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    const newNotif = { id: Date.now() + Math.random(), type, title, message, time: now, read: false };
+
+    // 1. Simpan ke notifikasi Admin
+    try {
+      const adminSaved = localStorage.getItem('aews_admin_notifications');
+      const adminNotifs = adminSaved ? JSON.parse(adminSaved) : [];
+      const updatedAdmin = [newNotif, ...adminNotifs.slice(0, 49)];
+      localStorage.setItem('aews_admin_notifications', JSON.stringify(updatedAdmin));
+    } catch (e) {}
+
+    // 2. Simpan ke notifikasi Dosen Wali
+    try {
+      const dosenSaved = localStorage.getItem('aews_dosen_notifications');
+      const dosenNotifs = dosenSaved ? JSON.parse(dosenSaved) : [];
+      const updatedDosen = [newNotif, ...dosenNotifs.slice(0, 49)];
+      localStorage.setItem('aews_dosen_notifications', JSON.stringify(updatedDosen));
+    } catch (e) {}
+
+    // 3. Broadcast ke tab yang sedang aktif
+    try {
+      const channel = new BroadcastChannel('aews_events');
+      channel.postMessage({ type: 'NEW_NOTIFICATION', notif: newNotif, timestamp: Date.now() });
+      channel.close();
+    } catch (e) {}
+    localStorage.setItem('aews_data_updated_trigger', String(Date.now()));
+  };
+
+  const broadcastDataUpdated = () => {
+    try {
+      const channel = new BroadcastChannel('aews_events');
+      channel.postMessage({ type: 'DATA_UPDATED', timestamp: Date.now() });
+      channel.close();
+    } catch (e) {}
+    localStorage.setItem('aews_data_updated_trigger', String(Date.now()));
+  };
+
   const handleAddStudent = async () => {
     const { value: formValues } = await Swal.fire({
       title: '<span style="font-size: 1.25rem; font-weight: 700; color: #0b1c30;">Tambah Mahasiswa Baru</span>',
@@ -210,6 +248,7 @@ export default function StudentsPage() {
             <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Nama Lengkap</label>
             <input id="swal-name" class="swal2-input" placeholder="Nama mahasiswa" type="text" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
           </div>
+
           <div>
             <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Baseline IPK</label>
             <input id="swal-gpa" class="swal2-input" placeholder="Contoh: 3.50" type="number" step="0.01" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
@@ -236,12 +275,11 @@ export default function StudentsPage() {
         return {
           nim,
           name,
-          gpa: gpaVal ? Number(gpaVal) : 4.0,
-          attendanceRate: 100,
-          assignmentScore: 100,
-          quizScore: 100,
-          atsScore: 100,
-          discussionPart: 100
+          gpa: gpaVal ? Number(gpaVal) : 0,
+          attendanceRate: 0,
+          assignmentScore: 0,
+          quizScore: 0,
+          atsScore: 0,
         };
       }
     });
@@ -262,6 +300,7 @@ export default function StudentsPage() {
         if (response.ok) {
           Swal.fire({ icon: 'success', title: 'Berhasil', text: 'Mahasiswa baru berhasil ditambahkan.' });
           fetchStudents();
+          broadcastDataUpdated();
         } else {
           const errorData = await response.json();
           Swal.fire({ title: 'Gagal', text: errorData.message || 'Terjadi kesalahan', icon: 'error' });
@@ -328,6 +367,7 @@ export default function StudentsPage() {
         if (response.ok) {
           Swal.fire({ icon: 'success', title: 'Berhasil', text: 'Data utama berhasil diperbarui.' });
           fetchStudents();
+          broadcastDataUpdated();
         } else {
           const errorData = await response.json();
           Swal.fire({ title: 'Gagal', text: errorData.message || 'Gagal mengubah data.', icon: 'error' });
@@ -341,70 +381,124 @@ export default function StudentsPage() {
   const handleUpdateProgress = async (student: Student) => {
     setActiveDropdown(null);
     const { value: formValues } = await Swal.fire({
-      title: `<span style="font-size: 1.25rem; font-weight: 700; color: #0b1c30;">Catat Progress</span>`,
+      title: '<span style="font-size: 1.25rem; font-weight: 700; color: #0b1c30;">Catat Progress Akademik</span>',
       html: `
         <div style="display: flex; flex-direction: column; gap: 12px; text-align: left; padding: 0 10px;">
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Mata Kuliah</label>
+            <select id="update-course" class="swal2-input" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
+              <option value="Analisis dan Perancangan Sistem">Analisis dan Perancangan Sistem</option>
+              <option value="Pemrograman Web">Pemrograman Web</option>
+              <option value="Sistem Operasi">Sistem Operasi</option>
+              <option value="Jaringan Komputer">Jaringan Komputer</option>
+              <option value="Kecerdasan Buatan">Kecerdasan Buatan</option>
+            </select>
+          </div>
           <div>
             <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Semester</label>
             <select id="update-semester" class="swal2-input" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
               <option value="1">Semester 1</option>
               <option value="2">Semester 2</option>
-              <option value="3">Semester 3</option>
+              <option value="3" selected>Semester 3</option>
               <option value="4">Semester 4</option>
               <option value="5">Semester 5</option>
               <option value="6">Semester 6</option>
             </select>
           </div>
           <div>
-            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Checkpoint Mingguan</label>
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Evaluasi Checkpoint</label>
             <select id="update-week" class="swal2-input" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
               <option value="4">Minggu ke-4 (Deteksi Awal)</option>
               <option value="8">Minggu ke-8 (Momen UTS)</option>
               <option value="12">Minggu ke-12 (Pra-UAS)</option>
             </select>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px;">
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #516070; display: block;">Hadir (%)</label>
-              <input id="update-att" class="swal2-input" value="${student.attendanceRate}" type="number" style="margin: 0; width: 100%; height: 38px; font-size: 13px; border-radius: 8px;">
-            </div>
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #516070; display: block;">Tugas</label>
-              <input id="update-ass" class="swal2-input" value="${student.assignmentScore}" type="number" style="margin: 0; width: 100%; height: 38px; font-size: 13px; border-radius: 8px;">
-            </div>
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #516070; display: block;">Kuis</label>
-              <input id="update-quiz" class="swal2-input" value="${student.quizScore || 0}" type="number" style="margin: 0; width: 100%; height: 38px; font-size: 13px; border-radius: 8px;">
-            </div>
-            <div>
-              <label style="font-size: 11px; font-weight: 600; color: #516070; display: block;">Nilai ATS</label>
-              <input id="update-ats" class="swal2-input" value="${student.atsScore || 0}" type="number" style="margin: 0; width: 100%; height: 38px; font-size: 13px; border-radius: 8px;">
-            </div>
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Kehadiran (%)</label>
+            <input id="update-att" class="swal2-input" value="${student.attendanceRate}" type="number" min="0" max="100" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
+          </div>
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Nilai Tugas (rata-rata)</label>
+            <input id="update-assign" class="swal2-input" value="${student.assignmentScore}" type="number" min="0" max="100" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
+          </div>
+          <div>
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Nilai Kuis (rata-rata)</label>
+            <input id="update-quiz" class="swal2-input" value="${student.quizScore || 0}" type="number" min="0" max="100" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
+          </div>
+          <div>
+            <label id="ats-label" style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 4px; display: block;">Nilai ATS (Asesmen Tengah Semester)</label>
+            <input id="update-ats" class="swal2-input" value="${student.atsScore || 0}" type="number" min="0" max="100" style="margin: 0; width: 100%; height: 40px; font-size: 14px; border-radius: 8px;">
+            <p id="ats-hint" style="font-size: 11px; margin-top: 4px;"></p>
           </div>
         </div>
       `,
       focusConfirm: false,
       showCancelButton: true,
-      confirmButtonText: 'Analisis & Simpan',
+      confirmButtonText: 'Simpan & Jalankan AI',
       cancelButtonText: 'Batal',
       confirmButtonColor: '#004ac6',
       cancelButtonColor: '#f1f3f9',
       customClass: { cancelButton: 'text-gray-700 font-semibold', popup: 'rounded-2xl' },
+      didOpen: () => {
+        const weekSelect = document.getElementById('update-week') as HTMLSelectElement;
+        const atsInput = document.getElementById('update-ats') as HTMLInputElement;
+        const atsHint = document.getElementById('ats-hint') as HTMLElement;
+        const atsLabel = document.getElementById('ats-label') as HTMLElement;
+
+        const toggleAtsField = () => {
+          const week = Number(weekSelect.value);
+          const hasAts = week >= 8;
+
+          if (hasAts) {
+            atsInput.disabled = false;
+            atsInput.style.background = '#fff';
+            atsInput.style.color = '#0b1c30';
+            atsInput.style.cursor = 'text';
+            atsLabel.style.color = '#516070';
+            atsHint.textContent = '✅ ATS dihitung di checkpoint ini (Model W8)';
+            atsHint.style.color = '#059669';
+          } else {
+            atsInput.disabled = true;
+            atsInput.value = '0';
+            atsInput.style.background = '#f0f0f0';
+            atsInput.style.color = '#999';
+            atsInput.style.cursor = 'not-allowed';
+            atsLabel.style.color = '#9ca3af';
+            atsHint.textContent = '⚠️ ATS tidak dihitung di checkpoint ini (Model W4)';
+            atsHint.style.color = '#9ca3af';
+          }
+        };
+
+        toggleAtsField();
+        weekSelect.addEventListener('change', toggleAtsField);
+      },
       preConfirm: () => {
+        const courseName = (document.getElementById('update-course') as HTMLSelectElement)?.value;
         const semesterNumber = (document.getElementById('update-semester') as HTMLSelectElement)?.value;
         const weekNumber = (document.getElementById('update-week') as HTMLSelectElement)?.value;
         const attendanceRate = (document.getElementById('update-att') as HTMLInputElement)?.value;
-        const assignmentScore = (document.getElementById('update-ass') as HTMLInputElement)?.value;
+        const assignmentScore = (document.getElementById('update-assign') as HTMLInputElement)?.value;
         const quizScore = (document.getElementById('update-quiz') as HTMLInputElement)?.value;
         const atsScore = (document.getElementById('update-ats') as HTMLInputElement)?.value;
 
+        if (!courseName) {
+          Swal.showValidationMessage('Mata Kuliah harus dipilih!');
+          return false;
+        }
+
+        if (!attendanceRate || !assignmentScore) {
+          Swal.showValidationMessage('Kehadiran dan Nilai Tugas wajib diisi!');
+          return false;
+        }
+
         return {
-          semesterNumber: Number(semesterNumber),
+          courseName,
+          semesterNumber: semesterNumber ? Number(semesterNumber) : 1,
           weekNumber: Number(weekNumber),
           attendanceRate: Number(attendanceRate),
           assignmentScore: Number(assignmentScore),
-          quizScore: Number(quizScore),
-          atsScore: Number(atsScore)
+          quizScore: quizScore ? Number(quizScore) : 0,
+          atsScore: atsScore ? Number(atsScore) : 0,
         };
       }
     });
@@ -412,7 +506,7 @@ export default function StudentsPage() {
     if (formValues) {
       const token = localStorage.getItem('token');
       try {
-        Swal.fire({ title: 'AI sedang memproses...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+        Swal.fire({ title: 'Menyimpan progress & Menghitung AI...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
         const response = await fetch(`${API_URL}/students/${student.id}/progress`, {
           method: 'PATCH',
           headers: {
@@ -424,7 +518,40 @@ export default function StudentsPage() {
 
         if (response.ok) {
           Swal.fire({ icon: 'success', title: 'Tersimpan', text: 'AI telah memperbarui status risiko terbaru.' });
-          fetchStudents();
+          
+          try {
+            const freshRes = await fetch(`${API_URL}/students`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (freshRes.ok) {
+              const freshData: Student[] = await freshRes.json();
+              setStudents(freshData);
+
+              const newHighRiskCount = freshData.filter(s => s.riskStatus === 'HIGH RISK').length;
+              const lastSaved = localStorage.getItem('aews_last_hr_count');
+              const prevHighRisk = lastSaved !== null ? parseInt(lastSaved, 10) : students.filter(s => s.riskStatus === 'HIGH RISK').length;
+
+              if (lastSaved !== null && newHighRiskCount < prevHighRisk) {
+                const diff = prevHighRisk - newHighRiskCount;
+                pushSystemNotification(
+                  'success',
+                  '✅ Intervensi Berhasil',
+                  `intervensi kepada mahasiswa berhasil, ${diff} mahasiswa berhasil menurunkan resikonya, terimakasih`
+                );
+              } else if (newHighRiskCount > prevHighRisk) {
+                pushSystemNotification(
+                  'danger',
+                  '🚨 Mahasiswa High Risk Terdeteksi',
+                  `terdapat ${newHighRiskCount} mahasiswa yang memiliki high risk, segera lakukan tindakan`
+                );
+              }
+
+              localStorage.setItem('aews_last_hr_count', String(newHighRiskCount));
+            }
+          } catch (e) {
+            fetchStudents();
+            broadcastDataUpdated();
+          }
         } else {
           const errorData = await response.json();
           Swal.fire({ title: 'Gagal', text: errorData.message || 'Gagal menyimpan progress.', icon: 'error' });
@@ -434,6 +561,7 @@ export default function StudentsPage() {
       }
     }
   };
+
 
   const handleViewHistory = async (student: Student) => {
     setActiveDropdown(null);
@@ -459,7 +587,9 @@ export default function StudentsPage() {
             return `
               <div style="border-left: 3px solid ${dotColor}; padding-left: 16px; padding-bottom: 16px; margin-bottom: 8px; position: relative; text-align: left;">
                 <div style="position: absolute; width: 12px; height: 12px; border-radius: 50%; background: white; border: 3px solid ${dotColor}; left: -7.5px; top: 0;"></div>
-                <p style="font-size: 11px; font-weight: bold; color: #6b7280; margin: 0 0 4px 0;">MINGGU KE-${h.weekNumber}</p>
+                <p style="font-size: 11px; font-weight: bold; color: #6b7280; margin: 0 0 4px 0;">
+                  MINGGU KE-${h.weekNumber} &mdash; <span style="color: #004ac6; font-weight: 700;">${h.courseName || 'Umum'}</span>
+                </p>
                 <p style="font-size: 14px; font-weight: 700; color: #111827; margin: 0;">AI Risk Score: ${h.predictedScore}%</p>
                 <p style="font-size: 12px; color: ${textColor}; font-weight: 600; margin: 2px 0 0 0;">${h.riskStatus}</p>
               </div>
@@ -482,27 +612,53 @@ export default function StudentsPage() {
     }
   };
 
-  // Simpan semester yang dipilih sementara
+  // Simpan semester dan minggu yang dipilih sementara
   const selectedSemesterRef = useRef<number>(1);
+  const selectedWeekRef = useRef<number>(4);
 
   const handleImportClick = async () => {
-    // Langkah 1: Tampilkan dialog pilih semester dulu
-    const { value: semester, isConfirmed } = await Swal.fire({
+    // Langkah 1: Tampilkan dialog pilih semester → lalu muncul dropdown minggu
+    const { value: formResult, isConfirmed } = await Swal.fire({
       title: '<span style="font-size: 1.1rem; font-weight: 700; color: #0b1c30;">Import Data Excel</span>',
       html: `
         <div style="text-align: left; padding: 0 8px;">
           <p style="font-size: 12px; color: #6b7280; margin-bottom: 16px;">
-            Pilih semester untuk data yang akan diimpor. Semua baris dalam file Excel akan dikaitkan ke semester ini.
+            Pilih semester dan checkpoint mingguan untuk data yang akan diimpor. Semua baris dalam file Excel akan diproses sesuai pengaturan ini.
           </p>
-          <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 6px; display: block;">Semester</label>
-          <select id="import-semester" style="width: 100%; padding: 10px 12px; border: 1.5px solid #c3c6d7; border-radius: 10px; font-size: 14px; font-weight: 600; color: #0b1c30; background: #f8f9ff; outline: none; cursor: pointer;">
+
+          <!-- STEP 1: Semester -->
+          <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 6px; display: block;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #004ac6; color: white; font-size: 11px; font-weight: 700; margin-right: 6px;">1</span>
+            Pilih Semester
+          </label>
+          <select id="import-semester" style="width: 100%; padding: 10px 12px; border: 1.5px solid #c3c6d7; border-radius: 10px; font-size: 14px; font-weight: 600; color: #0b1c30; background: #f8f9ff; outline: none; cursor: pointer; margin-bottom: 14px;">
+            <option value="" disabled selected>— Pilih Semester —</option>
             <option value="1">Semester 1</option>
             <option value="2">Semester 2</option>
             <option value="3">Semester 3</option>
-            <option value="4" selected>Semester 4</option>
+            <option value="4">Semester 4</option>
             <option value="5">Semester 5</option>
             <option value="6">Semester 6</option>
           </select>
+
+          <!-- STEP 2: Checkpoint Minggu (hidden initially) -->
+          <div id="import-week-section" style="max-height: 0; overflow: hidden; opacity: 0; transition: max-height 0.4s ease, opacity 0.35s ease, margin 0.3s ease; margin-top: 0;">
+            <label style="font-size: 12px; font-weight: 600; color: #516070; margin-bottom: 6px; display: block;">
+              <span style="display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: #004ac6; color: white; font-size: 11px; font-weight: 700; margin-right: 6px;">2</span>
+              Pilih Checkpoint Mingguan
+            </label>
+            <select id="import-week" style="width: 100%; padding: 10px 12px; border: 1.5px solid #c3c6d7; border-radius: 10px; font-size: 14px; font-weight: 600; color: #0b1c30; background: #f8f9ff; outline: none; cursor: pointer;">
+              <option value="" disabled selected>— Pilih Minggu —</option>
+              <option value="4">Minggu ke-4 (Deteksi Awal)</option>
+              <option value="8">Minggu ke-8 (Momen UTS)</option>
+              <option value="12">Minggu ke-12 (Pra-UAS)</option>
+            </select>
+
+            <p id="import-ats-hint" style="font-size: 11px; color: #9ca3af; margin-top: 8px; padding: 8px 10px; background: #f8f9ff; border-radius: 8px; border: 1px solid #e5e7eb; transition: all 0.3s ease;">
+              ℹ️ Pilih checkpoint minggu untuk melihat model AI yang digunakan.
+            </p>
+          </div>
+
           <p style="font-size: 11px; color: #9ca3af; margin-top: 12px;">
             📎 Setelah klik <strong>Pilih File</strong>, sistem akan membuka file manager untuk upload file <code>.xlsx</code> atau <code>.csv</code>.
           </p>
@@ -515,14 +671,89 @@ export default function StudentsPage() {
       cancelButtonColor: '#f1f3f9',
       customClass: { cancelButton: 'text-gray-700 font-semibold', popup: 'rounded-2xl' },
       focusConfirm: false,
+      didOpen: () => {
+        const semesterSelect = document.getElementById('import-semester') as HTMLSelectElement;
+        const weekSection = document.getElementById('import-week-section') as HTMLElement;
+        const weekSelect = document.getElementById('import-week') as HTMLSelectElement;
+        const atsHint = document.getElementById('import-ats-hint') as HTMLElement;
+
+        // Disable confirm button until both dropdowns are selected
+        const confirmBtn = Swal.getConfirmButton();
+        if (confirmBtn) {
+          confirmBtn.disabled = true;
+          confirmBtn.style.opacity = '0.5';
+          confirmBtn.style.cursor = 'not-allowed';
+        }
+
+        // Show week section when semester is selected
+        semesterSelect.addEventListener('change', () => {
+          if (semesterSelect.value) {
+            weekSection.style.maxHeight = '200px';
+            weekSection.style.opacity = '1';
+            weekSection.style.marginTop = '14px';
+            // Reset week selection when semester changes
+            weekSelect.value = '';
+            atsHint.innerHTML = 'ℹ️ Pilih checkpoint minggu untuk melihat model AI yang digunakan.';
+            atsHint.style.color = '#9ca3af';
+            atsHint.style.borderColor = '#e5e7eb';
+            atsHint.style.background = '#f8f9ff';
+            // Keep confirm disabled until week is also selected
+            if (confirmBtn) {
+              confirmBtn.disabled = true;
+              confirmBtn.style.opacity = '0.5';
+              confirmBtn.style.cursor = 'not-allowed';
+            }
+          }
+        });
+
+        // Update ATS hint & enable confirm button when week is selected
+        const updateHint = () => {
+          const week = Number(weekSelect.value);
+          if (!week) return;
+          
+          const hasAts = week >= 8;
+          if (hasAts) {
+            atsHint.innerHTML = '✅ Minggu ke-' + week + ': Kolom ATS di Excel akan <strong>dihitung</strong> (Model W8 — dengan ATS)';
+            atsHint.style.color = '#059669';
+            atsHint.style.borderColor = '#a7f3d0';
+            atsHint.style.background = '#ecfdf5';
+          } else {
+            atsHint.innerHTML = '⚠️ Minggu ke-' + week + ': Kolom ATS di Excel akan <strong>diabaikan</strong> (Model W4 — tanpa ATS)';
+            atsHint.style.color = '#9ca3af';
+            atsHint.style.borderColor = '#e5e7eb';
+            atsHint.style.background = '#f8f9ff';
+          }
+
+          // Enable confirm button once both are selected
+          if (confirmBtn && semesterSelect.value) {
+            confirmBtn.disabled = false;
+            confirmBtn.style.opacity = '1';
+            confirmBtn.style.cursor = 'pointer';
+          }
+        };
+
+        weekSelect.addEventListener('change', updateHint);
+      },
       preConfirm: () => {
-        const val = (document.getElementById('import-semester') as HTMLSelectElement)?.value;
-        return val ? Number(val) : 4;
+        const semester = (document.getElementById('import-semester') as HTMLSelectElement)?.value;
+        const week = (document.getElementById('import-week') as HTMLSelectElement)?.value;
+
+        if (!semester) {
+          Swal.showValidationMessage('Silakan pilih semester terlebih dahulu!');
+          return false;
+        }
+        if (!week) {
+          Swal.showValidationMessage('Silakan pilih checkpoint mingguan!');
+          return false;
+        }
+
+        return { semester: Number(semester), weekNumber: Number(week) };
       },
     });
 
-    if (isConfirmed && semester) {
-      selectedSemesterRef.current = semester;
+    if (isConfirmed && formResult) {
+      selectedSemesterRef.current = formResult.semester;
+      selectedWeekRef.current = formResult.weekNumber;
       // Langkah 2: Buka file picker
       fileInputRef.current?.click();
     }
@@ -534,14 +765,17 @@ export default function StudentsPage() {
 
     const formData = new FormData();
     formData.append('file', file);
-    // Sertakan semester yang sudah dipilih
+    // Sertakan semester dan minggu yang sudah dipilih
     formData.append('semester', String(selectedSemesterRef.current));
+    formData.append('weekNumber', String(selectedWeekRef.current));
     const token = localStorage.getItem('token');
+
+    const weekLabel = selectedWeekRef.current === 8 ? 'Minggu ke-8 (Model W8 + ATS)' : `Minggu ke-${selectedWeekRef.current} (Model W4)`;
     
     try {
       Swal.fire({
         title: `Memproses Data Semester ${selectedSemesterRef.current}...`,
-        text: 'Mengirim variabel ke engine Random Forest.',
+        text: `Checkpoint: ${weekLabel} — Mengirim variabel ke engine Random Forest.`,
         allowOutsideClick: false,
         didOpen: () => { Swal.showLoading(); },
       });
@@ -555,10 +789,44 @@ export default function StudentsPage() {
       if (response.ok) {
         Swal.fire({
           title: 'Berhasil!',
-          html: `Data log <strong>Semester ${selectedSemesterRef.current}</strong> berhasil diimpor dan dianalisis oleh AI.`,
+          html: `Data <strong>Semester ${selectedSemesterRef.current} — ${weekLabel}</strong> berhasil diimpor dan dianalisis oleh AI.`,
           icon: 'success',
         });
-        fetchStudents();
+
+        // Ambil data mahasiswa terbaru dari database untuk menghitung delta risiko
+        try {
+          const freshRes = await fetch(`${API_URL}/students`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (freshRes.ok) {
+            const freshData: Student[] = await freshRes.json();
+            setStudents(freshData);
+
+            const newHighRiskCount = freshData.filter(s => s.riskStatus === 'HIGH RISK').length;
+            const lastSaved = localStorage.getItem('aews_last_hr_count');
+            const prevHighRisk = lastSaved !== null ? parseInt(lastSaved, 10) : students.filter(s => s.riskStatus === 'HIGH RISK').length;
+
+            if (lastSaved !== null && newHighRiskCount < prevHighRisk) {
+              const diff = prevHighRisk - newHighRiskCount;
+              pushSystemNotification(
+                'success',
+                '✅ Intervensi Berhasil',
+                `intervensi kepada mahasiswa berhasil, ${diff} mahasiswa berhasil menurunkan resikonya, terimakasih`
+              );
+            } else if (newHighRiskCount > 0) {
+              pushSystemNotification(
+                'danger',
+                '🚨 Mahasiswa High Risk Terdeteksi',
+                `terdapat ${newHighRiskCount} mahasiswa yang memiliki high risk, segera lakukan tindakan`
+              );
+            }
+
+            localStorage.setItem('aews_last_hr_count', String(newHighRiskCount));
+          }
+        } catch (e) {
+          fetchStudents();
+          broadcastDataUpdated();
+        }
       } else {
         Swal.fire({ title: 'Gagal', text: 'Gagal memproses file Excel. Pastikan format sudah benar.', icon: 'error' });
       }
